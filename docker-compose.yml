@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16  # Use latest stable version
+    restart: always
+    environment:
+      TZ: UTC
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data  # Persist data
+    shm_size: 128mb  # Recommended for shared memory
+
+volumes:
+  postgres_data:
