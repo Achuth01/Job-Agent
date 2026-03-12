@@ -5,8 +5,13 @@ public record JobListing(
         String title,
         String company,
         String location,
-        String salary,
-        String skills,
+        String jobType,
+        String datePosted,
+        String salaryMin,
+        String salaryMax,
+        String salaryCurrency,
+        String salaryInterval,
+        String description,
         String source,
         String url
 ) {}

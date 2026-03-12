@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -22,6 +24,7 @@ import java.time.LocalDateTime;
 @RequestMapping("/api/resume")
 public class ResumeController {
 
+    private static final Logger log = LoggerFactory.getLogger(ResumeController.class);
     private final ResumeRepository resumeRepository;
 
     public ResumeController(ResumeRepository resumeRepository) {
@@ -31,16 +34,21 @@ public class ResumeController {
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<String> upload(@RequestPart("file") MultipartFile file) {
         if (file == null || file.isEmpty()) {
+            log.warn("resume upload rejected: empty file");
             return ResponseEntity.badRequest().body("file must not be empty");
         }
 
         String contentType = file.getContentType();
+        log.info("resume upload received: name={} size={} contentType={}",
+                file.getOriginalFilename(), file.getSize(), contentType);
         String content;
         try {
             content = extractContent(file, contentType);
         } catch (IOException e) {
+            log.error("resume upload failed to read file", e);
             return ResponseEntity.internalServerError().body("failed to read file");
         } catch (IllegalArgumentException e) {
+            log.warn("resume upload rejected: {}", e.getMessage());
             return ResponseEntity.badRequest().body(e.getMessage());
         }
 
@@ -51,6 +59,7 @@ public class ResumeController {
                 LocalDateTime.now()
         );
         resumeRepository.save(resume);
+        log.info("resume upload stored");
         return ResponseEntity.ok("resume uploaded");
     }
 
