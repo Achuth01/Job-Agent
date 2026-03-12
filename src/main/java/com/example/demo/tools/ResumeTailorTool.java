@@ -1,5 +1,6 @@
 package com.example.demo.tools;
 
+import com.example.demo.models.ResumeDocument;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.tool.annotation.Tool;
 import com.example.demo.repository.ResumeRepository;
@@ -40,12 +41,8 @@ public class ResumeTailorTool {
     }
 
     private String loadBaseResume() {
-        Optional<String> content = resumeRepository.findTopByOrderByUploadedAtDesc()
-                .map(resume -> resume.getContent());
-        if (content.isEmpty()) {
-            log.warn("no resume found for tailoring");
-        }
-        return content.orElseThrow(() ->
-                new IllegalStateException("No resume found. Upload one via /api/resume/upload"));
+        return resumeRepository.findTopByOrderByUploadedAtDesc()
+                .map(ResumeDocument::getContent).orElse("No resume uploaded. Use /resume/upload first.");
     }
+
 }

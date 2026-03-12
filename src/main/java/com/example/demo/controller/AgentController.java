@@ -21,12 +21,17 @@ public class AgentController {
     }
 
     @PostMapping("/chat")
-    public ResponseEntity<String> chat(@RequestBody ChatRequest request) {
+    public ResponseEntity<?> chat(@RequestBody ChatRequest request) {
         if (request == null || request.message() == null || request.message().isBlank()) {
             log.warn("agent chat rejected: blank message");
             return ResponseEntity.badRequest().body("message must not be blank");
         }
         log.info("agent chat received: sessionId={} messageLength={}", request.sessionId(), request.message().length());
+        if (agent.shouldAutoApply(request.message())) {
+            log.info("agent auto-apply flow: sessionId={}", request.sessionId());
+            return ResponseEntity.ok(agent.applyForJobs(request.message(), request.sessionId()));
+        }
+
         String response = agent.chat(request.message(), request.sessionId());
         log.info("agent chat completed: sessionId={}", request.sessionId());
         return ResponseEntity.ok(response);
