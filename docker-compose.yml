@@ -14,6 +14,28 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data  # Persist data
     shm_size: 128mb  # Recommended for shared memory
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - ollama
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/postgres
+      SPRING_DATASOURCE_USERNAME: app
+      SPRING_DATASOURCE_PASSWORD: app
+      SPRING_AI_OLLAMA_BASE_URL: http://ollama:11434
+      SPRING_AI_OLLAMA_CHAT_OPTIONS_MODEL: mistral-nemo:12b
 
 volumes:
   postgres_data:
+  ollama_data:

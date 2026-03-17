@@ -8,6 +8,7 @@ import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.options.LoadState;
+import com.microsoft.playwright.options.WaitUntilState;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -24,8 +25,8 @@ import java.util.Objects;
 @Component
 public class JobSearchTool {
 
-    private static final int MAX_RESULTS_PER_SOURCE = 20;
-    private static final int PAGE_TIMEOUT_MS = 20000;
+    private static final int MAX_RESULTS_PER_SOURCE = 50;
+    private static final int PAGE_TIMEOUT_MS = 45000;
     private static final Logger log = LoggerFactory.getLogger(JobSearchTool.class);
 
     public JobSearchTool() {
@@ -45,8 +46,6 @@ public class JobSearchTool {
 
             List<JobListing> results = new ArrayList<>();
             results.addAll(fetchLinkedIn(context, keywords, location));
-            results.addAll(fetchInstahyre(context, keywords, location));
-            results.addAll(fetchGoogleJobs(context, keywords, location));
             context.close();
             browser.close();
             log.info("job search completed: totalResults={}", results.size());
@@ -64,13 +63,15 @@ public class JobSearchTool {
         Page page = newPage(context);
         try {
             log.debug("linkedin search navigate: {}", uri);
-            page.navigate(uri);
-            page.waitForLoadState(LoadState.NETWORKIDLE);
-            page.waitForTimeout(1000);
+            page.navigate(uri, new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED).setTimeout(PAGE_TIMEOUT_MS));
+            page.waitForTimeout(1500);
 
             Locator cards = page.locator("ul.jobs-search__results-list li");
             if (cards.count() == 0) {
                 cards = page.locator("li.jobs-search-results__list-item");
+            }
+            if (cards.count() == 0) {
+                cards = page.locator("div.base-card");
             }
 
             int total = Math.min((int) cards.count(), MAX_RESULTS_PER_SOURCE);
@@ -88,7 +89,7 @@ public class JobSearchTool {
                     url = safeAttr(card.locator("a"), "href");
                 }
 
-                if (!matchesLocation(location, jobLocation)) {
+                if (!matchesLocationLenient(location, jobLocation)) {
                     continue;
                 }
                 if (!matchesKeywords(title + " " + company + " " + jobLocation, keywords)) {
@@ -112,148 +113,16 @@ public class JobSearchTool {
                 ));
             }
         } catch (Exception ignored) {
-            log.warn("linkedin search failed", ignored);
+            log.error("linkedin search failed", ignored);
         } finally {
             page.close();
         }
 
-        log.debug("linkedin search results: {}", results.size());
+        log.info("linkedin search results: {}", results.size());
         return results;
     }
 
-    private List<JobListing> fetchInstahyre(BrowserContext context, String keywords, String location) {
-        List<JobListing> results = new ArrayList<>();
-        String uri = "https://www.instahyre.com/jobs/?keyword=" + encode(keywords)
-                + "&location=" + encode(location);
-        Page page = newPage(context);
-        try {
-            log.debug("instahyre search navigate: {}", uri);
-            page.navigate(uri);
-            page.waitForLoadState(LoadState.NETWORKIDLE);
-            page.waitForTimeout(1000);
-
-            Locator cards = page.locator(".job-card, .job-listing, .job-card-item");
-            int total = Math.min((int) cards.count(), MAX_RESULTS_PER_SOURCE);
-
-            for (int i = 0; i < total; i++) {
-                Locator card = cards.nth(i);
-                String title = safeText(card.locator(".job-title"));
-                if (title.isBlank()) {
-                    title = safeText(card.locator("h3"));
-                }
-                String company = safeText(card.locator(".company-name"));
-                if (company.isBlank()) {
-                    company = safeText(card.locator(".job-company"));
-                }
-                String jobLocation = safeText(card.locator(".job-location"));
-                String jobType = safeText(card.locator(".job-type"));
-                String url = safeAttr(card.locator("a"), "href");
-
-                if (!matchesLocation(location, jobLocation)) {
-                    continue;
-                }
-                if (!matchesKeywords(title + " " + company + " " + jobLocation, keywords)) {
-                    continue;
-                }
-
-                results.add(new JobListing(
-                        buildId("instahyre", url, title, company),
-                        title,
-                        company,
-                        jobLocation,
-                        jobType,
-                        "",
-                        "",
-                        "",
-                        "",
-                        "",
-                        "",
-                        "instahyre",
-                        cleanUrl(url)
-                ));
-            }
-        } catch (Exception ignored) {
-            log.warn("instahyre search failed", ignored);
-        } finally {
-            page.close();
-        }
-
-        log.debug("instahyre search results: {}", results.size());
-        return results;
-    }
-
-    private List<JobListing> fetchGoogleJobs(BrowserContext context, String keywords, String location) {
-        List<JobListing> results = new ArrayList<>();
-        String query = String.format("%s %s jobs", safeString(keywords), safeString(location)).trim();
-        String uri = "https://www.google.com/search?q=" + encode(query) + "&ibp=htl;jobs&hl=en&gl=us";
-
-        Page page = newPage(context);
-        try {
-            log.debug("google jobs search navigate: {}", uri);
-            page.navigate(uri);
-            page.waitForLoadState(LoadState.NETWORKIDLE);
-            dismissGoogleConsent(page);
-
-            Locator cards = page.locator("div[role='listitem']");
-            int total = Math.min((int) cards.count(), MAX_RESULTS_PER_SOURCE);
-
-            for (int i = 0; i < total; i++) {
-                Locator card = cards.nth(i);
-                String title = safeText(card.locator("div[role='heading']"));
-                if (title.isBlank()) {
-                    title = safeText(card.locator("h3"));
-                }
-                String company = safeText(card.locator("div[class*='company']"));
-                String jobLocation = safeText(card.locator("div[class*='location']"));
-                String datePosted = safeText(card.locator("span[class*='date']"));
-                String jobType = safeText(card.locator("span[class*='employment']"));
-
-                String description = "";
-                String url = "";
-                try {
-                    card.click(new Locator.ClickOptions().setTimeout(PAGE_TIMEOUT_MS));
-                    page.waitForTimeout(500);
-                    description = safeText(page.locator("div[jsname='HBMdr']"));
-                    if (description.isBlank()) {
-                        description = safeText(page.locator("div[jsname='jDtH8b']"));
-                    }
-                    Locator applyLink = page.locator("a:has-text(\"Apply\")");
-                    url = safeAttr(applyLink, "href");
-                } catch (Exception ignored) {
-                }
-
-                if (!matchesLocation(location, jobLocation)) {
-                    continue;
-                }
-                if (!matchesKeywords(title + " " + company + " " + jobLocation + " " + description, keywords)) {
-                    continue;
-                }
-
-                results.add(new JobListing(
-                        buildId("google_jobs", url, title, company),
-                        title,
-                        company,
-                        jobLocation,
-                        jobType,
-                        datePosted,
-                        "",
-                        "",
-                        "",
-                        "",
-                        description,
-                        "google_jobs",
-                        cleanUrl(url)
-                ));
-            }
-        } catch (Exception ignored) {
-            log.warn("google jobs search failed", ignored);
-        } finally {
-            page.close();
-        }
-
-        log.debug("google jobs search results: {}", results.size());
-        return results;
-    }
+    // LinkedIn-only search
 
     private boolean matchesKeywords(String text, String keywords) {
         String kw = normalize(keywords);
@@ -279,6 +148,18 @@ public class JobSearchTool {
             return normalize(jobLocation).contains("remote");
         }
         return normalize(jobLocation).contains(req);
+    }
+
+    private boolean matchesLocationLenient(String requested, String jobLocation) {
+        String req = normalize(requested);
+        if (req.isEmpty()) {
+            return true;
+        }
+        if (jobLocation == null || jobLocation.isBlank()) {
+            // LinkedIn results are already filtered by location via query params.
+            return true;
+        }
+        return matchesLocation(requested, jobLocation);
     }
 
     private String normalize(String value) {
@@ -345,14 +226,5 @@ public class JobSearchTool {
         return Integer.toHexString(Objects.hash(seed));
     }
 
-    private void dismissGoogleConsent(Page page) {
-        try {
-            Locator consent = page.locator("button:has-text(\"I agree\"), button:has-text(\"Accept all\"), button:has-text(\"Accept\")");
-            if (consent.count() > 0) {
-                consent.first().click(new Locator.ClickOptions().setTimeout(2000));
-                page.waitForTimeout(500);
-            }
-        } catch (Exception ignored) {
-        }
-    }
+    // no consent handler needed for current sources
 }
